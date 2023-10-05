@@ -1,0 +1,7 @@
+
+# .gitignore for l10n-gpt
+
+# ignore file with ChatGPT token
+tokens.py
+
+queries
