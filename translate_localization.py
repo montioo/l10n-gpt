@@ -11,6 +11,7 @@ import sys
 import os
 import glob
 import json
+import shutil
 from typing import Dict, List
 from chat_gpt_interface import ChatGPT
 
@@ -117,6 +118,9 @@ def main():
         loc = json.loads(f.read())
     
     source_lang = loc["sourceLanguage"]
+    
+    print("Source language found: " + source_lang)
+    
     strings = loc["strings"]
     strings_objects: Dict[str, Translatable] = {}
 
@@ -146,6 +150,9 @@ def main():
         if max_lines and i >= max_lines:
             break
 
+    queries_directory = "queries"
+    if not os.path.exists(queries_directory):
+        os.makedirs(queries_directory)
 
     ## send to chatGPT
     
@@ -225,7 +232,13 @@ def main():
     with open(localizable_file, "w") as f:
         f.write(json.dumps(loc, indent=2, separators=(', ', ' : '), ensure_ascii=False))
 
-
+    try:
+        shutil.rmtree(queries_directory)
+        print(f"Successfully removed temp '{queries_directory}' directory.")
+    except FileNotFoundError:
+        return
+    except Exception as e:
+        print(f"Failed to delete temp '{queries_directory}' directory: {e}")
 
 if __name__ == "__main__":
     main()
