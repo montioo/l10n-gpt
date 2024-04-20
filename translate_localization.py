@@ -13,7 +13,29 @@ import glob
 import json
 from typing import Dict, List
 from chat_gpt_interface import ChatGPT
-from translate_info import CHATGPT_TOKEN, APP_CONTEXT
+
+def get_config():
+    try:
+        from translate_info import CHATGPT_TOKEN as token_from_file
+    except ImportError:
+        token_from_file = None
+    
+    try:
+    	from translate_info import APP_CONTEXT as context_from_file
+    except ImportError:
+        context_from_file = None
+
+    # Fetch token from environment if not found in translate_info.py
+    token = token_from_file or os.getenv("CHATGPT_TOKEN")
+    context = context_from_file
+
+    return token, context
+
+CHATGPT_TOKEN, APP_CONTEXT = get_config()
+
+if CHATGPT_TOKEN is None:
+    print("Usage: You have to set a CHATGPT_TOKEN environment var or provide a translate_info.py in the same folder with a CHATGPT_TOKEN constant.")
+    sys.exit(1)
 
 if len(sys.argv) < 2:
     print("Usage: python translate_localization.py <language_code> [Localizable.xcstrings path]")
@@ -167,7 +189,10 @@ def main():
         Third, a line starting with "translation: " in which you should add your translation.
         
         Please return only the lines starting with "translation:" with your added translation after the colon. Do not include the comments in the translations, those are only to add context.
-        """ + "\n" + APP_CONTEXT
+        """
+        
+        if APP_CONTEXT:
+        	info = info + "\n" + APP_CONTEXT
 
         response = cpt.complete_query(info, query, is_response_valid_callback)
         full_response += response + "\n"

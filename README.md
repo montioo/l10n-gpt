@@ -25,12 +25,12 @@ Next, you need to give these scripts access to the OpanAI API token. This is pos
 
 ### 1. With a `translate_info.py` file
 
-In the root of this repository, create a file called `translate_info.py` which contains this line of code:
+In the root of this repository, create a file called `translate_info.py` which contains your constraints:
 
 ```python
 CHATGPT_TOKEN = "put the token from OpenAI here"
 
-APP_CONTEXT = "This is my App, here is a summary what it does."
+APP_CONTEXT = "This is my App, here is a summary what it does." # optional
 ```
 
 ### 2. Via Environment Arg
