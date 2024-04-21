@@ -38,7 +38,7 @@ APP_CONTEXT = "This is my App, here is a summary what it does." # optional
 Start the python script as follows
 
 ```bash
-OPENAI_API_KEY="put the token from OpenAI here" python3 translate_info.py
+OPENAI_API_KEY="put the token from OpenAI here" python3 filename.py
 ```
 
 

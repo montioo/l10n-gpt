@@ -72,10 +72,10 @@ class Translatable:
         return False
     
     def get_gpt_query(self) -> str:
-        query = f"key: {self.key}\\n"
+        query = f"key: {self.key}\n"
         comment = self.info_dict["comment"] if "comment" in self.info_dict else "No comment provided."
-        query += f"comment: {comment}\\n"
-        query += "translation: \\n"
+        query += f"comment: {comment}\n"
+        query += "translation: \n"
         return query
 
     def parse_gpt_response(self, gpt_response: str, overwrite=False, for_language=target_language) -> bool:
