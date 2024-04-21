@@ -3,5 +3,6 @@
 
 # ignore file with ChatGPT token
 tokens.py
+translate_info.py
 
 queries

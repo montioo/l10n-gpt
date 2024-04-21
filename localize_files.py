@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 import time
 from chat_gpt_interface import ChatGPT
-from tokens import CHATGPT_TOKEN
+from translate_info import CHATGPT_TOKEN
 
 
 task_description_intro = """

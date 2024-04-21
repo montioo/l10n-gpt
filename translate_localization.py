@@ -20,15 +20,14 @@ def get_config():
         from translate_info import CHATGPT_TOKEN as token_from_file
     except ImportError:
         token_from_file = None
-    
+
     try:
-    	from translate_info import APP_CONTEXT as context_from_file
+        from translate_info import APP_CONTEXT as context
     except ImportError:
-        context_from_file = None
+        context = None
 
     # Fetch token from environment if not found in translate_info.py
     token = token_from_file or os.getenv("CHATGPT_TOKEN")
-    context = context_from_file
 
     return token, context
 
@@ -108,9 +107,9 @@ def main():
 
     print("Warning: This script add the translations in-place, i.e. modify the original provided file!")
     print("If you don't have a version control system, this is not recommended!\n")
-    answer = input("Please type 'yes' to continue or any other key to abort. ")
+    answer = input("Please type 'yes' to continue or any other key to abort.\n")
     if answer != "yes":
-        print("\nAborting.")
+        print("Aborting.")
         return
     
 
@@ -199,7 +198,7 @@ def main():
         """
         
         if APP_CONTEXT:
-        	info = info + "\n" + APP_CONTEXT
+            info = info + "\n" + APP_CONTEXT
 
         response = cpt.complete_query(info, query, is_response_valid_callback)
         full_response += response + "\n"
