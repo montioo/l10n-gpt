@@ -8,27 +8,56 @@
 
 
 import sys
+import os
+import glob
 import json
+import shutil
 from typing import Dict, List
 from chat_gpt_interface import ChatGPT
-from tokens import CHATGPT_TOKEN
 
+def get_config():
+    try:
+        from translate_info import CHATGPT_TOKEN as token_from_file
+    except ImportError:
+        token_from_file = None
+    
+    try:
+    	from translate_info import APP_CONTEXT as context_from_file
+    except ImportError:
+        context_from_file = None
 
-task_description = """
-I want you to translate some text from German to English.
-This text will be used to offer an iOS app in different languages.
-The input given to you will consist of three lines for each phrase that needs to be translated.
-First, the phrase in German.
-Second, a comment that describes in which context the phrase is occuring in the application's UI. Make sure that the translation you provide fits this context.
-Thrid, a line starting with "translation: " in which you should add your translation.
+    # Fetch token from environment if not found in translate_info.py
+    token = token_from_file or os.getenv("CHATGPT_TOKEN")
+    context = context_from_file
 
-Please return only the lines starting with "translation:" with your added translation after the colon. Do not include the comments in the translations, those are only to add context.
-"""
+    return token, context
 
-additional_context_info = """
-In the data you will be given, the word "Zähler" refers to a digital power meter or an electricity meter. Do not translate it with "counter".
-"""
+CHATGPT_TOKEN, APP_CONTEXT = get_config()
 
+if CHATGPT_TOKEN is None:
+    print("Usage: You have to set a CHATGPT_TOKEN environment var or provide a translate_info.py in the same folder with a CHATGPT_TOKEN constant.")
+    sys.exit(1)
+
+if len(sys.argv) < 2:
+    print("Usage: python translate_localization.py <language_code> [Localizable.xcstrings path]")
+    sys.exit(1)
+    
+target_language = sys.argv[1]  # The language code is the first argument
+print("Language code set to:", target_language)
+
+# Check if the path to Localizable.xcstrings is provided as the second argument
+if len(sys.argv) > 2:
+    localizable_file = sys.argv[2]
+else:
+    # Search for an Localizable.xcstrings file in the current directory and its subdirectories
+    localizables = glob.glob("**/Localizable.xcstrings", recursive=True)
+    if localizables:
+        localizable_file = localizables[0]  # Take the first Localizable.xcstrings file found
+    else:
+        print("Error: No Localizable.xcstrings found in the currenty directory and its subdirectories")
+        sys.exit(1)
+
+print("Using Localizable.xcstrings:", localizable_file)
 
 class Translatable:
 
@@ -36,7 +65,7 @@ class Translatable:
         self.key = key
         self.info_dict = info_dict
     
-    def is_translated_in(self, language: str = "en"):
+    def is_translated_in(self, language: str = target_language):
         if "localizations" in self.info_dict:
             l10ns = self.info_dict["localizations"]
             return language in l10ns.keys()
@@ -49,8 +78,7 @@ class Translatable:
         query += "translation: \n"
         return query
 
-    def parse_gpt_response(self, gpt_response: str, overwrite=False, for_language="en") -> bool:
-        """ Returns True if parsing was successful. """
+    def parse_gpt_response(self, gpt_response: str, overwrite=False, for_language=target_language) -> bool:
         try:
             translation = gpt_response
             if not translation.startswith("translation: "):
@@ -71,22 +99,12 @@ class Translatable:
                 self.info_dict["localizations"].update(localizations_dict_update)
             else:
                 self.info_dict["localizations"] = localizations_dict_update
-            
             return True
         except:
-            pass
-
-        return False
+            return False
 
 
 def main():
-
-    if len(sys.argv) != 2:
-        print(f"Usage: python3 {sys.argv[0]} <path to Localizable.xcstrings>")
-        return
-
-    # Path to the Xcode projects. Searches for swift files and will localize them in place
-    localizable_file = sys.argv[1]
 
     print("Warning: This script add the translations in-place, i.e. modify the original provided file!")
     print("If you don't have a version control system, this is not recommended!\n")
@@ -98,6 +116,10 @@ def main():
 
     with open(localizable_file, "r") as f:
         loc = json.loads(f.read())
+    
+    source_lang = loc["sourceLanguage"]
+    
+    print("Source language found: " + source_lang)
     
     strings = loc["strings"]
     strings_objects: Dict[str, Translatable] = {}
@@ -128,8 +150,13 @@ def main():
         if max_lines and i >= max_lines:
             break
 
+    queries_directory = "queries"
+    if not os.path.exists(queries_directory):
+        os.makedirs(queries_directory)
 
     ## send to chatGPT
+    
+    print("Init ChatGPT with token: ", CHATGPT_TOKEN)
 
     cpt = ChatGPT(CHATGPT_TOKEN, model="gpt-3.5-turbo")
 
@@ -160,8 +187,19 @@ def main():
                 print(non_empty_lines)
 
             return valid
-
-        info = task_description + "\n" + additional_context_info
+            
+        info = "I want you to translate some text from " + source_lang  +  " to " + target_language + ". " + """
+        This text will be used to offer an iOS app in different languages.
+        The input given to you will consist of three lines for each phrase that needs to be translated.
+        First, the phrase in """ + source_lang + """.
+        Second, a comment that describes in which context the phrase is occuring in the application's UI. Make sure that the translation you provide fits this context.
+        Third, a line starting with "translation: " in which you should add your translation.
+        
+        Please return only the lines starting with "translation:" with your added translation after the colon. Do not include the comments in the translations, those are only to add context.
+        """
+        
+        if APP_CONTEXT:
+        	info = info + "\n" + APP_CONTEXT
 
         response = cpt.complete_query(info, query, is_response_valid_callback)
         full_response += response + "\n"
@@ -176,7 +214,7 @@ def main():
         if not line:
             continue
         
-        valid_response &= objects_in_this_query[valid_lines].parse_gpt_response(line, for_language="en")
+        valid_response &= objects_in_this_query[valid_lines].parse_gpt_response(line, for_language=target_language)
 
         if not valid_response:
             print("invalid line")
@@ -194,7 +232,13 @@ def main():
     with open(localizable_file, "w") as f:
         f.write(json.dumps(loc, indent=2, separators=(', ', ' : '), ensure_ascii=False))
 
-
+    try:
+        shutil.rmtree(queries_directory)
+        print(f"Successfully removed temp '{queries_directory}' directory.")
+    except FileNotFoundError:
+        return
+    except Exception as e:
+        print(f"Failed to delete temp '{queries_directory}' directory: {e}")
 
 if __name__ == "__main__":
     main()

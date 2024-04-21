@@ -17,21 +17,16 @@ from typing import Callable
 class ChatGPT:
 
     def __init__(self, openai_token: str = None, model: str = "gpt-4"):
-        """
-        openai_token: token that can be obtained from the OpenAI website. Either provded here or set as an environment variable OPENAI_API_KEY before starting the script.
-        model: string describing the gpt model to use. Possible values are available here https://platform.openai.com/docs/models
-        """
-
-        if openai_token:
-            openai.api_key = openai_token
-        elif "OPENAI_API_KEY" in os.environ:
-            openai.api_key = os.getenv("OPENAI_API_KEY")
-        else:
-            raise RuntimeError("Need openai key. Either as class constructor argument or in environment variable OPENAI_API_KEY")
-
-        # e.g. "gpt-4-0613", "gpt-4", "gpt-3.5-turbo",
+        if not openai_token:
+            openai_token = os.getenv("OPENAI_API_KEY")
+        
+        if not openai_token:
+            raise RuntimeError("An OpenAI API key is required, either as a constructor argument or in the 'OPENAI_API_KEY' environment variable.")
+        
         self.model = model
-    
+        self.client = openai.OpenAI(api_key=openai_token)  # Initialize the client
+
+
     def complete_query(self, system_command: str, user_input: str, is_valid_callback: Callable[[str], bool] = None, max_attempts: int = 2) -> str:
         """
         Method takes a system_command and user_input and prompts ChatGPT for a
@@ -61,12 +56,12 @@ class ChatGPT:
 
             # https://platform.openai.com/docs/guides/gpt/chat-completions-response-format
 
-            response = openai.ChatCompletion.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages
             )
-
-            finish_reason = response["choices"][0]["finish_reason"]
+            
+            finish_reason = response.choices[0].finish_reason
             if finish_reason == "length":
                 # max tokens exceeded
                 error_text = "Maximum tokens exceeded.\n"
@@ -78,12 +73,14 @@ class ChatGPT:
                 # model didn't finish for whatever reason. Trying again
                 print("model terminated with finish_reason", finish_reason)
                 continue
-
+                
+            message = response.choices[0].message.content
+            print("response" + message)
             with open(f"queries/{date_str}_3_api-response.txt", "w") as f:
-                f.write(json.dumps(response, indent=4))
+                f.write(json.dumps(message, indent=4))
 
             try:
-                response_text = response["choices"][0]["message"]["content"]
+                response_text = response.choices[0].message.content.strip()
             except:
                 print("Error, got unexpected response format:", response)
                 continue
