@@ -136,7 +136,6 @@ struct PinEntryView: View {
                         }
                         showingReadyConfirmation = true
                     }, label: {
-                        // TODO: Different button design. Has to be big and easy to press!
                         let unlockButtonTitle = String(
                             localized: "Entsperren",
                             comment: "Title of the unlock button in the unlock tab.")
@@ -234,7 +233,6 @@ struct PinEntryView: View {
                     startPinEntry()
                     let pinArray = pinArrayFromDisplayedPin(displayedPin: displayedPin)!
                     let pinInt = pinIntFromPinArray(pinArray: pinArray)
-                    // TODO: If this returns false, show an error message
                     _ = startBlinkingPin(pinInt: pinInt, uiUpdateCallback: setDisplayedPinFromInt, uiEndCallback: pinEntryDone)
                 }, label: {
                     let startText = String(localized: "Los geht's", comment: "Button in alert pressed to start the blinking.")

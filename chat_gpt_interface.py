@@ -3,20 +3,24 @@
 #
 # Marius Montebaur
 # 
-# Oktober 2023
+# October 2023
 # 
 
 
 import os
+import time
 import openai
 import datetime
 import json
 from typing import Callable
 
 
+SCRIPT_FOLDER_PATH = os.path.dirname(os.path.realpath(__file__))
+
+
 class ChatGPT:
 
-    def __init__(self, openai_token: str = None, model: str = "gpt-4"):
+    def __init__(self, openai_token: str = None, model: str = "gpt-4", log_path: str = "queries", cooldown_duration_sec: int = 2):
         if not openai_token:
             openai_token = os.getenv("OPENAI_API_KEY")
         
@@ -24,7 +28,13 @@ class ChatGPT:
             raise RuntimeError("An OpenAI API key is required, either as a constructor argument or in the 'OPENAI_API_KEY' environment variable.")
         
         self.model = model
-        self.client = openai.OpenAI(api_key=openai_token)  # Initialize the client
+        self.client = openai.OpenAI(api_key=openai_token)
+
+        self._queries_folder_path = log_path if os.path.isabs(log_path) else os.path.abspath(log_path)
+        os.makedirs(self._queries_folder_path, exist_ok=True)
+
+        self._cooldown_duration_sec = cooldown_duration_sec
+        self._last_query_timestamp = 0
 
 
     def complete_query(self, system_command: str, user_input: str, is_valid_callback: Callable[[str], bool] = None, max_attempts: int = 2) -> str:
@@ -48,10 +58,16 @@ class ChatGPT:
 
         for _ in range(max_attempts):
 
+            ts = time.time()
+            if ts - self._last_query_timestamp < self._cooldown_duration_sec:
+                time.sleep(self._cooldown_duration_sec - (ts - self._last_query_timestamp))
+                print(f"  -- going to sleep for {self._cooldown_duration_sec} secs to not exceed openai rate limit --")
+            self._last_query_timestamp = ts
+
             date_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            with open(f"queries/{date_str}_1_system-input.txt", "w") as f:
+            with open(os.path.join(self._queries_folder_path, f"{date_str}_1_system-input.txt"), "w") as f:
                 f.write(system_command)
-            with open(f"queries/{date_str}_2_user-input.txt", "w") as f:
+            with open(os.path.join(self._queries_folder_path, f"{date_str}_2_user-input.txt"), "w") as f:
                 f.write(user_input)
 
             # https://platform.openai.com/docs/guides/gpt/chat-completions-response-format
@@ -75,8 +91,8 @@ class ChatGPT:
                 continue
                 
             message = response.choices[0].message.content
-            print("response" + message)
-            with open(f"queries/{date_str}_3_api-response.txt", "w") as f:
+            # print("response" + message)
+            with open(os.path.join(self._queries_folder_path, f"{date_str}_3_api-response.txt"), "w") as f:
                 f.write(json.dumps(message, indent=4))
 
             try:
@@ -85,11 +101,12 @@ class ChatGPT:
                 print("Error, got unexpected response format:", response)
                 continue
 
-            with open(f"queries/{date_str}_4_gpt-output.txt", "w") as f:
+            with open(os.path.join(self._queries_folder_path, f"{date_str}_4_gpt-output.txt"), "w") as f:
                 f.write(response_text)
 
             if is_valid_callback:
                 if not is_valid_callback(response_text):
+                    print(f"Response was invalid for request {date_str}. Will try again.")
                     continue
 
             return response_text

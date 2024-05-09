@@ -1,0 +1,42 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "About" : {
+      "comment" : "Header for the about section in settings"
+    },
+    "Enable Notifications" : {
+      "comment" : "Toggle label for enabling notifications in settings"
+    },
+    "Location Access" : {
+      "comment" : "Toggle label for giving location access in settings"
+    },
+    "Preferences" : {
+      "comment" : "Header for the preferences section in settings"
+    },
+    "Privacy Policy" : {
+      "comment" : "Label for privacy policy in settings"
+    },
+    "Settings" : {
+      "comment" : "Navigation bar title for settings view"
+    },
+    "Terms of Service" : {
+      "comment" : "Label for terms of service in settings"
+    },
+    "This is a string\nwith multiple lines\n\nand some empty lines." : {
+      "comment" : "In swift code, this was a string that spans multiple lines."
+    },
+    "This single line \"string\" contains quotes." : {
+      "comment" : "In swift code, this was a single line string containing escaped quotes."
+    },
+    "This string contains\nnewline\n\ncharacters." : {
+      "comment" : "In swift code, this was a single line string containing newline characters."
+    },
+    "Version 1.0.3" : {
+      "comment" : "Label showing app version in settings"
+    },
+    "We can \"escape\" quotes or just\n\"write\" them." : {
+      "comment" : "In swift code, this was a multi line string containing quotes and escaped quotes."
+    }
+  },
+  "version" : "1.0"
+}

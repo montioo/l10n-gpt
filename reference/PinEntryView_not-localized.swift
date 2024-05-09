@@ -96,7 +96,6 @@ struct PinEntryView: View {
                     }
                 }
                 
-                // TODO: add a spacer
                 Section(header: Text("Eingabe der Pin")) {
                     PinView(pin: $displayedPin)
                         .padding(.top, 10)
@@ -126,7 +125,6 @@ struct PinEntryView: View {
                         }
                         showingReadyConfirmation = true
                     }, label: {
-                        // TODO: Different button design. Has to be big and easy to press!
                         HStack() {
                             Spacer()
                             Image(systemName: "lock.open.fill")
@@ -201,7 +199,6 @@ struct PinEntryView: View {
                     startPinEntry()
                     let pinArray = pinArrayFromDisplayedPin(displayedPin: displayedPin)!
                     let pinInt = pinIntFromPinArray(pinArray: pinArray)
-                    // TODO: If this returns false, show an error message
                     _ = startBlinkingPin(pinInt: pinInt, uiUpdateCallback: setDisplayedPinFromInt, uiEndCallback: pinEntryDone)
                 }, label: {
                     Text("Los geht's")

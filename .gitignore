@@ -1,8 +1,20 @@
 
 # .gitignore for l10n-gpt
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache
+.DS_Store
 
 # ignore file with ChatGPT token
 tokens.py
 translate_info.py
 
+# logs of ChatGPT queries and responses
 queries
+
+# files generated during testing
+test/test_output_data
+
+# Ignore test xcode project for now
+l10n-gpt-test/

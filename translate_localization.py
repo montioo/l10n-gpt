@@ -3,81 +3,69 @@
 #
 # Marius Montebaur
 # 
-# Oktober 2023
+# October 2023
 # 
 
 
-import sys
 import os
 import glob
 import json
-import shutil
+import argparse
+from dataclasses import dataclass
 from typing import Dict, List
 from chat_gpt_interface import ChatGPT
+from common import get_app_context, get_openapi_token, add_common_args, user_approved_overwrite_warning
 
-def get_config():
-    try:
-        from translate_info import CHATGPT_TOKEN as token_from_file
-    except ImportError:
-        token_from_file = None
 
-    try:
-        from translate_info import APP_CONTEXT as context
-    except ImportError:
-        context = None
+def get_task_desc(source_lang: str, target_lang: str) -> str:
+    desc = f"""
+    I want you to translate some text from {source_lang} to {target_lang}.
+    This text will be used to offer an iOS app in different languages.
+    The input given to you will consist of three lines for each phrase that needs to be translated.
+    First, the phrase in {source_lang}.
+    Second, a comment that describes in which context the phrase is occurring in the application's UI. Make sure that the translation you provide fits this context.
+    Third, a line starting with "translation: " in which you should add your translation.
+        
+    Please return only the lines starting with "translation: " with your added translation after the colon.
+    Do not include the comments in the translations, those are only to add context.
+    "\\n" represent escaped newlines in the original string. Please keep the line breaks like this.
+    """
+    return desc.replace("    ", "")
 
-    # Fetch token from environment if not found in translate_info.py
-    token = token_from_file or os.getenv("CHATGPT_TOKEN")
 
-    return token, context
+def escape_char_while_parsing_localizable_strings(string: str) -> str:
+    return string.replace('\n', "\\n")
 
-CHATGPT_TOKEN, APP_CONTEXT = get_config()
+def unescape_string_while_parsing_response(string: str) -> str:
+    return string.replace("\\n", '\n')
 
-if CHATGPT_TOKEN is None:
-    print("Usage: You have to set a CHATGPT_TOKEN environment var or provide a translate_info.py in the same folder with a CHATGPT_TOKEN constant.")
-    sys.exit(1)
-
-if len(sys.argv) < 2:
-    print("Usage: python translate_localization.py <language_code> [Localizable.xcstrings path]")
-    sys.exit(1)
-    
-target_language = sys.argv[1]  # The language code is the first argument
-print("Language code set to:", target_language)
-
-# Check if the path to Localizable.xcstrings is provided as the second argument
-if len(sys.argv) > 2:
-    localizable_file = sys.argv[2]
-else:
-    # Search for an Localizable.xcstrings file in the current directory and its subdirectories
-    localizables = glob.glob("**/Localizable.xcstrings", recursive=True)
-    if localizables:
-        localizable_file = localizables[0]  # Take the first Localizable.xcstrings file found
-    else:
-        print("Error: No Localizable.xcstrings found in the currenty directory and its subdirectories")
-        sys.exit(1)
-
-print("Using Localizable.xcstrings:", localizable_file)
 
 class Translatable:
+    """
+    Represents a translatable string in the Localizable.xcstrings. This class is
+    used to build a query for ChatGPT and to parse the response for this
+    specific translatable string.
+    """
 
     def __init__(self, key, info_dict):
-        self.key = key
+        self.escaped_key = escape_char_while_parsing_localizable_strings(key)
         self.info_dict = info_dict
     
-    def is_translated_in(self, language: str = target_language):
+    def is_translated_to(self, language: str):
         if "localizations" in self.info_dict:
             l10ns = self.info_dict["localizations"]
             return language in l10ns.keys()
         return False
     
     def get_gpt_query(self) -> str:
-        query = f"key: {self.key}\n"
-        comment = self.info_dict["comment"] if "comment" in self.info_dict else "No comment provided."
+        query = f"key: {self.escaped_key}\n"
+        comment = escape_char_while_parsing_localizable_strings(self.info_dict["comment"]) \
+            if "comment" in self.info_dict else "No comment provided."
         query += f"comment: {comment}\n"
         query += "translation: \n"
         return query
 
-    def parse_gpt_response(self, gpt_response: str, overwrite=False, for_language=target_language) -> bool:
+    def parse_gpt_response(self, gpt_response: str, for_language: str) -> bool:
         try:
             translation = gpt_response
             if not translation.startswith("translation: "):
@@ -89,7 +77,7 @@ class Translatable:
                 for_language: {
                     "stringUnit": {
                         "state": "translated",
-                        "value": translation
+                        "value": unescape_string_while_parsing_response(translation)
                     }
                 }
             }
@@ -103,109 +91,125 @@ class Translatable:
             return False
 
 
-def main():
+@dataclass
+class TranslateL10nConfig:
+    target_language: str
+    localizable_path: str
+    openai_api_cooldown: int
+    output_path: str
+    log_path: str
+    update_existing: bool
 
-    print("Warning: This script add the translations in-place, i.e. modify the original provided file!")
-    print("If you don't have a version control system, this is not recommended!\n")
-    answer = input("Please type 'yes' to continue or any other key to abort.\n")
-    if answer != "yes":
-        print("Aborting.")
-        return
+
+def _parse_args():
+
+    parser = argparse.ArgumentParser(description="Augments a Localizable.xcstrings file with translations for the given language. The Localizable.xcstrings file itself must be generated by Xcode. The translation of strings will take the comments and a description for the app's purpose into account.")
+    parser.add_argument("target_language", help="ISO 639-1 Code if the language has one, otherwise use ISO 639-2 Code")
+    parser.add_argument("localizable_path", help="Path to a Localizable.xcstrings. If no file is given, the sub folders of the given folder will be searched for this file.")
+    parser.add_argument("--output", type=str, help="Optional output folder. The Localizable.xcstrings file will not be overwritten and the modified version will be placed in the given folder.")
+    parser.add_argument("--update-existing", action="store_true", help="If this optional flag is set, terms for which a translation already exists will be overwritten with newly queried translations.")
+    add_common_args(parser)
+
+    args = parser.parse_args()
+
+    localizable_filepath = args.localizable_path
+    if not os.path.exists(localizable_filepath):
+        print(f"Localizable.xcstrings does not exist at: {localizable_filepath}\nAborting.")
+        exit(1)
+    if os.path.isdir(localizable_filepath):
+        ls = glob.glob(os.path.join(localizable_filepath, "**/Localizable.xcstrings"), recursive=True)
+        if not ls:
+            print("Error: No Localizable.xcstrings found in the current directory and its subdirectories")
+            exit(1)
+        localizable_filepath = ls[0]  # Take the first Localizable.xcstrings file found
+
+    print("Using Localizable.xcstrings:", localizable_filepath)
+
+    output_filepath = localizable_filepath
+    if args.output:
+        output_filepath = args.output
+        if os.path.isdir(output_filepath):
+            output_filepath = os.path.join(output_filepath, "Localizable.xcstrings")
+
+    if not args.no_confirmation and output_filepath == localizable_filepath:
+        if not user_approved_overwrite_warning():
+            # User aborted the execution
+            exit(1)
     
+    conf = TranslateL10nConfig(
+        target_language = args.target_language,
+        localizable_path = localizable_filepath,
+        openai_api_cooldown = args.openai_api_cooldown,
+        output_path = output_filepath,
+        log_path = args.log_path,
+        update_existing=args.update_existing
+    )
 
-    with open(localizable_file, "r") as f:
-        loc = json.loads(f.read())
-    
-    source_lang = loc["sourceLanguage"]
-    
-    print("Source language found: " + source_lang)
-    
-    strings = loc["strings"]
-    strings_objects: Dict[str, Translatable] = {}
+    return conf
 
-    for key in strings.keys():
-        string_info = strings[key]
-        string_obj = Translatable(key, string_info)
 
-        strings_objects[key] = string_obj
-
-    
-    ## build the query for chatGPT
-
-    max_lines = None
-    query = ""
-    query_lines = []
+def build_gpt_translatable_objects(conf: TranslateL10nConfig, strings_dict: Dict[str, any]) -> List[Translatable]:
+    """
+    Parses the Localizable.xcstrings file and constructs a Translatable object
+    for each string in this file. If a string does not have a translation or if
+    the user wants to redo all translations, it will be added to the returned
+    list.
+    """
     objects_in_this_query: List[Translatable] = []
 
-    for i, key in enumerate(strings.keys()):
-        str_obj = strings_objects[key]
-        if str_obj.is_translated_in("en"):
-            continue
+    for key in strings_dict.keys():
+        string_info = strings_dict[key]
+        translatable = Translatable(key, string_info)
 
-        q = str_obj.get_gpt_query()
-        query_lines.append(q)
-        objects_in_this_query.append(str_obj)
+        if not translatable.is_translated_to(conf.target_language) or conf.update_existing:
+            objects_in_this_query.append(translatable)
 
-        if max_lines and i >= max_lines:
-            break
-
-    queries_directory = "queries"
-    if not os.path.exists(queries_directory):
-        os.makedirs(queries_directory)
-
-    ## send to chatGPT
+    return objects_in_this_query
     
-    print("Init ChatGPT with token: ", CHATGPT_TOKEN)
 
-    cpt = ChatGPT(CHATGPT_TOKEN, model="gpt-3.5-turbo")
+def get_gpt_response(conf: TranslateL10nConfig, translatable_objs: List[Translatable], source_lang: str):
+    chatgpt_token = get_openapi_token()
+    app_context = get_app_context()
+    task_desc = get_task_desc(source_lang, conf.target_language)
 
-    max_query_length = 30
+    print("Init ChatGPT with token: ", chatgpt_token)
+
+    cpt = ChatGPT(chatgpt_token, model="gpt-3.5-turbo", log_path=conf.log_path, cooldown_duration_sec=conf.openai_api_cooldown)
+
+    # Maybe because gpt3.5 is used, but with multi line strings, a query length of 30 was too complicated.
+    max_query_length = 10
     full_response = ""
 
-    for i in range(0, len(query_lines)-1, max_query_length):
+    for i in range(0, len(translatable_objs)-1, max_query_length):
 
         query_idx = int(i/max_query_length + 1)
-        print(f"running gpt query {query_idx}")
 
-        query = query_lines[i: i+max_query_length]
-        query_length = len(query)
+        query_lines = [t.get_gpt_query() for t in translatable_objs[i: i+max_query_length]]
+        query_length = len(query_lines)
+        query = "\n".join(query_lines)
 
-        query = "\n".join(query)
-        
-        def is_response_valid_callback(response):
-            lines = response.split("\n")
-            non_empty_lines = [l for l in lines if l]
+        print(f"running gpt query number {query_idx} with {query_length} strings")
 
+        def is_response_valid_callback(response: str):
+            non_empty_lines = [l for l in response.split("\n") if l]
             valid = len(non_empty_lines) == query_length
-
-            if not valid:
-                print("query_length:", query_length)
-                print("------- lines ---------", len(lines))
-                print(lines)
-                print("------- non empty lines ---------", len(non_empty_lines))
-                print(non_empty_lines)
-
+            valid &= all([line.startswith("translation: ") for line in non_empty_lines])
             return valid
             
-        info = "I want you to translate some text from " + source_lang  +  " to " + target_language + ". " + """
-        This text will be used to offer an iOS app in different languages.
-        The input given to you will consist of three lines for each phrase that needs to be translated.
-        First, the phrase in """ + source_lang + """.
-        Second, a comment that describes in which context the phrase is occuring in the application's UI. Make sure that the translation you provide fits this context.
-        Third, a line starting with "translation: " in which you should add your translation.
-        
-        Please return only the lines starting with "translation:" with your added translation after the colon. Do not include the comments in the translations, those are only to add context.
-        """
-        
-        if APP_CONTEXT:
-            info = info + "\n" + APP_CONTEXT
+        system_cmd = task_desc
+        if app_context:
+            system_cmd += "\n" + app_context
 
-        response = cpt.complete_query(info, query, is_response_valid_callback)
+        response = cpt.complete_query(system_cmd, query, is_response_valid_callback)
         full_response += response + "\n"
+    
+    return full_response
 
 
-    ## evaluate response
-
+def evaluate_response(full_response: str, translatable_objects: List[Translatable], target_lang: str):
+    """
+    Parses the response for the translated strings and 
+    """
     valid_lines = 0
     valid_response = True
 
@@ -213,31 +217,46 @@ def main():
         if not line:
             continue
         
-        valid_response &= objects_in_this_query[valid_lines].parse_gpt_response(line, for_language=target_language)
+        valid_response &= translatable_objects[valid_lines].parse_gpt_response(line, for_language=target_lang)
 
         if not valid_response:
             print("invalid line")
             print(line)
-            return
+            exit(1)
 
         valid_lines += 1
 
+    if valid_lines != len(translatable_objects):
+        print(f"Something went wrong. {len(translatable_objects)} translations were requested but only {valid_lines} were parsed.")
+        print("Aborting.")
+        exit(1)
+    
+
+def main():
+
+    conf = _parse_args()
+
+    with open(conf.localizable_path, "r") as f:
+        loc = json.loads(f.read())
+    
+    source_lang = loc["sourceLanguage"]
+    target_lang = conf.target_language
+    
+    print("Source language found: " + source_lang)
+    
+    strings_dict = loc["strings"]
+    translatable_objects = build_gpt_translatable_objects(conf, strings_dict)
+
+    ## send to chatGPT
+    full_response = get_gpt_response(conf, translatable_objects, source_lang)
+    
+    ## evaluate response
+    evaluate_response(full_response, translatable_objects, target_lang)
     
     ## write back to json
-
-    for key in loc["strings"].keys():
-        loc["strings"][key] = strings_objects[key].info_dict
-    
-    with open(localizable_file, "w") as f:
+    with open(conf.output_path, "w") as f:
         f.write(json.dumps(loc, indent=2, separators=(', ', ' : '), ensure_ascii=False))
 
-    try:
-        shutil.rmtree(queries_directory)
-        print(f"Successfully removed temp '{queries_directory}' directory.")
-    except FileNotFoundError:
-        return
-    except Exception as e:
-        print(f"Failed to delete temp '{queries_directory}' directory: {e}")
 
 if __name__ == "__main__":
     main()
