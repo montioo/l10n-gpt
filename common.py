@@ -1,6 +1,7 @@
 
 import os
 import argparse
+import subprocess
 
 
 def get_openapi_token() -> str:
@@ -54,3 +55,38 @@ def user_approved_overwrite_warning() -> bool:
 
     print("\nAborting.")
     return False
+
+
+def file_has_uncommitted_changes(file_path: str) -> bool:
+    """
+    Check if a file is in a Git repository and has uncommitted changes.
+    
+    :param file_path: Absolute path to the file.
+    :return: True if the file is in a Git repo and has uncommitted changes, False otherwise.
+    """
+    if not os.path.isfile(file_path):
+        return False
+    
+    file_dir = os.path.dirname(file_path)
+    
+    try:
+        # Get the top-level Git directory
+        repo_root = subprocess.run(
+            ['git', '-C', file_dir, 'rev-parse', '--show-toplevel'],
+            capture_output=True, text=True, check=True
+        ).stdout.strip()
+        
+        # Ensure the file is inside the Git repo
+        if not file_path.startswith(repo_root):
+            return False
+        
+        # Check if the file has uncommitted changes
+        status_result = subprocess.run(
+            ['git', '-C', repo_root, 'status', '--porcelain', '--', file_path],
+            capture_output=True, text=True, check=True
+        ).stdout.strip()
+        
+        return bool(status_result)  # If there is output, the file has changes
+    
+    except subprocess.CalledProcessError:
+        return False  # Not a Git repo or other error

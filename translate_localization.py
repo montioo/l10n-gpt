@@ -174,9 +174,9 @@ def get_gpt_response(conf: TranslateL10nConfig, translatable_objs: List[Translat
 
     print("Init ChatGPT with token: ", chatgpt_token)
 
-    cpt = ChatGPT(chatgpt_token, model="gpt-3.5-turbo", log_path=conf.log_path, cooldown_duration_sec=conf.openai_api_cooldown)
+    cpt = ChatGPT(chatgpt_token, model="gpt-4o", log_path=conf.log_path, cooldown_duration_sec=conf.openai_api_cooldown)
 
-    # Maybe because gpt3.5 is used, but with multi line strings, a query length of 30 was too complicated.
+    # Max query length depends on the model. For gpt-3.5, using 30 strings in a query was too much.
     max_query_length = 10
     full_response = ""
 

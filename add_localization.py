@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import time
 from chat_gpt_interface import ChatGPT
-from common import get_openapi_token, add_common_args, user_approved_overwrite_warning
+from common import get_openapi_token, add_common_args, user_approved_overwrite_warning, file_has_uncommitted_changes
 
 
 task_desc_intro = """
@@ -26,6 +26,7 @@ Do this for all text that appears in the UI, even if a translation might not be 
 Do not remove any other text from the input file.
 Just output the content of the modified file. Do not add introductory text like "Here is the updated file" or similar.
 Just change the string. Do not add any wrapping Text views or similar.
+Do not add localization to strings that are only printed for debugging purposes.
 """
 
 task_desc_multiline = """
@@ -154,6 +155,11 @@ def _parse_args() -> AddL10nConfig:
     for input_file_path in input_file_paths:
         abs_input_file_path = os.path.abspath(input_file_path)
 
+        if file_has_uncommitted_changes(abs_input_file_path):
+            print("File has uncommited changes. Skipping.")
+            print("  ", abs_input_file_path)
+            continue
+
         if output_path is None:
             localization_pairs.append((abs_input_file_path, abs_input_file_path))
             continue
@@ -175,6 +181,18 @@ def _parse_args() -> AddL10nConfig:
 
     return user_conf
 
+
+def remove_markdown_code_block_annotation(file_contents: str) -> str:
+    lines = file_contents.split("\n")
+
+    if lines[0].startswith("```"):
+        lines = lines[1:]
+    
+    if lines[-1].startswith("```"):
+        lines = lines[:-1]
+    
+    return "\n".join(lines)
+
     
 def main():
 
@@ -184,7 +202,7 @@ def main():
     openai_api_token = get_openapi_token()
     
     # Need to use new model with large token count
-    cpt = ChatGPT(openai_api_token, model="gpt-4-0613", log_path=user_config.log_path)
+    cpt = ChatGPT(openai_api_token, model="gpt-4o", log_path=user_config.log_path)
 
     for i, (input_file_path, output_file_path) in enumerate(localization_pairs):
 
@@ -196,6 +214,8 @@ def main():
 
         system_command, user_input = generate_swift_localization_command(input_file_path, user_config.single_line_modifications)
         rewrite = cpt.complete_query(system_command, user_input)
+
+        rewrite = remove_markdown_code_block_annotation(rewrite)
 
         os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
         with open(output_file_path, "w") as f:
